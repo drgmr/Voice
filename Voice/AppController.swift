@@ -18,6 +18,7 @@ final class AppController {
     private(set) var lastTranscription: String?
     private(set) var errorMessage: String?
     private(set) var recentHistory: [TranscriptionEntry] = []
+    private(set) var vocabulary: [VocabularyEntry] = []
 
     /// Recording started via a quick-tap and is waiting for a second tap to stop.
     /// When `true`, the next Fn press stops recording; when `false`, a release
@@ -33,6 +34,7 @@ final class AppController {
     private let postProcessor = PostProcessor()
     private let paster = Paster()
     private let history: HistoryStore?
+    private let vocabularyStore: VocabularyStore?
 
     private var pillWindow: PillWindowController?
 
@@ -42,6 +44,8 @@ final class AppController {
         // Open SQLite-backed history store; if it fails, history is disabled
         // for this session but nothing else is affected.
         self.history = (try? HistoryStore())
+        // JSON-backed vocabulary; seeded with defaults on first launch.
+        self.vocabularyStore = (try? VocabularyStore())
 
         hotkey.onFnPress = { [weak self] in
             self?.handleFnPress()
@@ -72,11 +76,17 @@ final class AppController {
         if history == nil {
             log.error("HistoryStore failed to open — history disabled for this session")
         }
+        if vocabularyStore == nil {
+            log.error("VocabularyStore failed to open — vocabulary disabled for this session")
+        }
 
         // Float the pill. It observes `state` directly and animates in/out.
         pillWindow = PillWindowController(controller: self)
 
-        Task { await self.reloadHistory() }
+        Task {
+            await self.reloadHistory()
+            await self.reloadVocabulary()
+        }
     }
 
     // MARK: - Hotkey event handlers (sole entrypoints for Fn/Esc semantics)
@@ -164,15 +174,15 @@ final class AppController {
         log.info("stopAndTranscribe → got \(samples.count) samples, state=transcribing")
         state = .transcribing
 
-        let rawText = await transcriber.transcribe(samples: samples)
+        let whisperResult = await transcriber.transcribe(samples: samples)
         guard state == .transcribing else {
             log.info("Transcription completed but state changed — discarding result")
             return
         }
-        let rawTrimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawTrimmed = whisperResult.text.trimmingCharacters(in: .whitespacesAndNewlines)
         log.info("Raw transcription \(rawTrimmed.count) chars: \"\(rawTrimmed, privacy: .public)\"")
 
-        let cleaned = await postProcessor.process(rawTrimmed)
+        let cleaned = await postProcessor.process(rawTrimmed, vocabulary: vocabulary)
         guard state == .transcribing else {
             log.info("Post-processing completed but state changed — discarding result")
             return
@@ -188,6 +198,7 @@ final class AppController {
                 rawText: rawTrimmed,
                 finalText: cleaned,
                 durationMs: durationMs,
+                language: whisperResult.language,
                 appBundle: frontAppBundle
             )
         } else {
@@ -222,10 +233,30 @@ final class AppController {
         }
     }
 
+    // MARK: - Vocabulary
+
+    func reloadVocabulary() async {
+        guard let vocabularyStore else { return }
+        let entries = await vocabularyStore.load()
+        vocabulary = entries
+        log.info("Loaded \(entries.count) vocabulary entries")
+    }
+
+    func saveVocabulary(_ entries: [VocabularyEntry]) async {
+        guard let vocabularyStore else { return }
+        do {
+            try await vocabularyStore.save(entries)
+            vocabulary = entries
+        } catch {
+            log.error("Failed to save vocabulary: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     private func recordEntry(
         rawText: String,
         finalText: String,
         durationMs: Int,
+        language: String?,
         appBundle: String?
     ) {
         guard let history else { return }
@@ -235,7 +266,7 @@ final class AppController {
             durationMs: durationMs,
             rawText: rawText,
             finalText: finalText,
-            language: nil,
+            language: language,
             appBundleId: appBundle
         )
         Task { [history] in

@@ -7,7 +7,7 @@ struct SettingsView: View {
             GeneralTab()
                 .tabItem { Label("General", systemImage: "gear") }
 
-            PlaceholderTab(title: "Vocabulary", hint: "Fuzzy substitution rules — coming soon.")
+            VocabularyTab()
                 .tabItem { Label("Vocabulary", systemImage: "book") }
 
             HistoryTab()
@@ -139,6 +139,10 @@ private struct HistoryRow: View {
                 Text(Self.timeFormatter.string(from: entry.createdAt))
                 Text("·")
                 Text(durationLabel)
+                if let lang = entry.language, !lang.isEmpty {
+                    Text("·")
+                    Text(lang.uppercased()).monospaced()
+                }
                 if let app = entry.appBundleId, !app.isEmpty {
                     Text("·")
                     Text(app).lineLimit(1).truncationMode(.middle)
@@ -166,6 +170,138 @@ private struct HistoryRow: View {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+    }
+}
+
+// MARK: - Vocabulary
+
+private struct VocabularyTab: View {
+    @Environment(AppController.self) private var controller
+    @State private var draftEntries: [VocabularyEntry] = []
+    @State private var newFrom: String = ""
+    @State private var newTo: String = ""
+    @State private var saveTask: Task<Void, Never>?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+
+            if draftEntries.isEmpty {
+                Spacer()
+                ContentUnavailableView(
+                    "No vocabulary entries",
+                    systemImage: "book",
+                    description: Text("Add a rule below. The post-processor will apply it to future transcriptions.")
+                )
+                Spacer()
+            } else {
+                List {
+                    ForEach($draftEntries) { $entry in
+                        VocabularyRow(
+                            entry: $entry,
+                            onDelete: { delete(entry.id) }
+                        )
+                    }
+                }
+                .listStyle(.inset)
+            }
+
+            Divider()
+            addRow
+        }
+        .onAppear(perform: sync)
+        .onChange(of: controller.vocabulary) { _, _ in sync() }
+        .onChange(of: draftEntries) { _, new in
+            if new != controller.vocabulary {
+                scheduleSave()
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack {
+            Text("Replace mis-transcribed phrases. The post-processor matches fuzzily.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text("\(draftEntries.count) \(draftEntries.count == 1 ? "entry" : "entries")")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    private var addRow: some View {
+        HStack(spacing: 8) {
+            TextField("When I say", text: $newFrom)
+                .textFieldStyle(.roundedBorder)
+            Image(systemName: "arrow.right").foregroundStyle(.tertiary)
+            TextField("Write as", text: $newTo)
+                .textFieldStyle(.roundedBorder)
+            Button(action: add) {
+                Label("Add", systemImage: "plus")
+            }
+            .disabled(!canAdd)
+        }
+        .padding(16)
+    }
+
+    private var canAdd: Bool {
+        let from = newFrom.trimmingCharacters(in: .whitespaces)
+        let to = newTo.trimmingCharacters(in: .whitespaces)
+        return !from.isEmpty && !to.isEmpty
+    }
+
+    private func sync() {
+        if draftEntries != controller.vocabulary {
+            draftEntries = controller.vocabulary
+        }
+    }
+
+    private func add() {
+        let entry = VocabularyEntry(
+            from: newFrom.trimmingCharacters(in: .whitespaces),
+            to: newTo.trimmingCharacters(in: .whitespaces)
+        )
+        draftEntries.append(entry)
+        newFrom = ""
+        newTo = ""
+    }
+
+    private func delete(_ id: UUID) {
+        draftEntries.removeAll { $0.id == id }
+    }
+
+    private func scheduleSave() {
+        saveTask?.cancel()
+        let snapshot = draftEntries
+        saveTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            await controller.saveVocabulary(snapshot)
+        }
+    }
+}
+
+private struct VocabularyRow: View {
+    @Binding var entry: VocabularyEntry
+    var onDelete: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            TextField("When I say", text: $entry.from)
+                .textFieldStyle(.roundedBorder)
+            Image(systemName: "arrow.right").foregroundStyle(.tertiary)
+            TextField("Write as", text: $entry.to)
+                .textFieldStyle(.roundedBorder)
+            Button(role: .destructive, action: onDelete) {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(.vertical, 2)
     }
 }
 

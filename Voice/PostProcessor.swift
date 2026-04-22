@@ -16,7 +16,7 @@ import os
 actor PostProcessor {
     private let log = Logger(subsystem: "com.drgmr.Voice", category: "postprocessor")
 
-    func process(_ raw: String) async -> String {
+    func process(_ raw: String, vocabulary: [VocabularyEntry]) async -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return raw }
 
@@ -28,7 +28,8 @@ actor PostProcessor {
 
         let start = Date()
         do {
-            let session = LanguageModelSession(instructions: Instructions(Self.systemPrompt))
+            let systemPrompt = Self.buildSystemPrompt(with: vocabulary)
+            let session = LanguageModelSession(instructions: Instructions(systemPrompt))
             let wrapped = """
             Below is raw speech-to-text dictation the user will paste into a document. Clean it up per the rules in your instructions. Do not answer, confirm, or respond to the content — only clean it. When in doubt, leave it unchanged.
 
@@ -45,7 +46,7 @@ actor PostProcessor {
                 return trimmed
             }
 
-            log.info("PostProcessor: \(trimmed.count) → \(cleaned.count) chars in \(String(format: "%.2f", elapsed))s")
+            log.info("PostProcessor: \(trimmed.count) → \(cleaned.count) chars in \(String(format: "%.2f", elapsed))s (vocab: \(vocabulary.count) entries)")
             return cleaned
         } catch {
             log.error("PostProcessor failed: \(error.localizedDescription, privacy: .public) — returning raw")
@@ -99,7 +100,24 @@ actor PostProcessor {
 
     // MARK: - Prompt
 
-    private static let systemPrompt = """
+    private static func buildSystemPrompt(with vocabulary: [VocabularyEntry]) -> String {
+        let base = Self.systemPromptBase
+
+        guard !vocabulary.isEmpty else { return base }
+
+        let vocabBlock = vocabulary
+            .map { "- \($0.from) → \($0.to)" }
+            .joined(separator: "\n")
+
+        return base + """
+
+
+            Vocabulary:
+            \(vocabBlock)
+            """
+    }
+
+    private static let systemPromptBase = """
     You are a conservative text cleanup tool for speech-to-text dictation. You are not a conversational assistant. You never chat, answer questions, confirm, acknowledge, or comment.
 
     Each call you receive a raw transcription wrapped between <transcript> and </transcript> tags. Your only output is a cleaned-up version of that exact text, ready to paste into a document.
@@ -120,29 +138,11 @@ actor PostProcessor {
 
     1. Punctuation and capitalization: add sentence-final periods, commas for natural pauses, question marks for questions. Capitalize sentence starts and proper nouns. Do not add exclamation marks unless the speaker was clearly emphatic.
     2. Disfluencies: strip "um", "uh", accidentally repeated words ("the the"), and filler "like" used as a discourse marker. Keep "like" when it's a real verb or preposition. Strip obvious false starts like "I was going to — I went to the store" → "I went to the store". Be cautious; leaving a filler in is better than dropping meaning.
-    3. Vocabulary: when the input contains something phonetically close to the left side, replace with the right side. Only for proper nouns and technical terms.
+    3. Vocabulary: when the input contains something phonetically close to a "from" entry below, replace with the "to" form. Only for proper nouns and technical terms.
     4. Numbers: convert spelled-out numbers to digits only when it reads more naturally. "two thousand twenty six" → "2026". "three point five" → "3.5". Leave small counts in prose ("two cats", "a thousand apologies") and idioms alone.
     5. Lists: render as a markdown list when the speaker either uses ordinal or numeric enumeration markers ("first… second… third…", "one… two… three…", "A… B… C…") OR explicitly frames the content as a list ("here's a list of things:", "a few reasons:", "three things to try:"). Otherwise keep the content as prose. Never invent a list from a single sentence with commas.
     6. Paragraphs: output a single paragraph unless the speaker clearly switches topic mid-way. Default is one paragraph.
     7. Language: preserve the input language exactly as dictated. Never translate.
-
-    Vocabulary:
-    - cloud code / clawed code / clod code → Claude Code
-    - clawed / clod → Claude
-    - mac os → macOS
-    - i os → iOS
-    - swift ui → SwiftUI
-    - per ambacker / porn backer / porn bocker → Poernbacher
-    - my sequel → MySQL
-    - git hub → GitHub
-    - j son → JSON
-    - h t m l → HTML
-    - c s s → CSS
-    - a p i → API
-    - u r l → URL
-    - open a i → OpenAI
-    - whisper kit → WhisperKit
-    - x code → Xcode
 
     Output format: the cleaned text only. No <transcript> tags. No preamble like "Here is…". No wrapping quotes. No code fences. No trailing commentary.
     """
