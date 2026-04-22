@@ -88,6 +88,16 @@ final class AppController {
             await self.reloadHistory()
             await self.reloadVocabulary()
         }
+
+        // Prewarm the transcription and cleanup models so the first user
+        // dictation doesn't pay the load latency. Each runs in its own
+        // detached Task so a slow one doesn't block the other.
+        Task { [transcriber] in
+            await transcriber.prewarm()
+        }
+        Task { [postProcessor] in
+            await postProcessor.prewarm()
+        }
     }
 
     // MARK: - Hotkey event handlers (sole entrypoints for Fn/Esc semantics)

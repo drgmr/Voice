@@ -16,6 +16,22 @@ import os
 actor PostProcessor {
     private let log = Logger(subsystem: "com.drgmr.Voice", category: "postprocessor")
 
+    /// Spin up a LanguageModelSession and ask the system model to prewarm so
+    /// the first real cleanup call doesn't pay the load latency. No-op when
+    /// the system model isn't available on this device.
+    func prewarm() async {
+        let model = SystemLanguageModel.default
+        guard case .available = model.availability else {
+            log.info("FoundationModels not available — skipping prewarm")
+            return
+        }
+        let start = Date()
+        let session = LanguageModelSession(instructions: Instructions(Self.systemPromptBase))
+        session.prewarm()
+        let elapsed = Date().timeIntervalSince(start)
+        log.info("FoundationModels prewarm kicked off in \(String(format: "%.2f", elapsed))s")
+    }
+
     func process(_ raw: String, vocabulary: [VocabularyEntry]) async -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return raw }

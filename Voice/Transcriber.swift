@@ -23,6 +23,20 @@ actor Transcriber {
     private var whisperKit: WhisperKit?
     private let log = Logger(subsystem: "com.drgmr.Voice", category: "transcriber")
 
+    /// Load (and download if needed) the recommended WhisperKit model so the
+    /// first user transcription doesn't pay the pipeline-load latency. Safe
+    /// to call multiple times — subsequent calls are a no-op.
+    func prewarm() async {
+        let start = Date()
+        do {
+            _ = try await loadedPipeline()
+            let elapsed = Date().timeIntervalSince(start)
+            log.info("WhisperKit prewarm complete in \(String(format: "%.2f", elapsed))s")
+        } catch {
+            log.error("WhisperKit prewarm failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     func transcribe(samples: [Float]) async -> TranscriptionOutput {
         guard !samples.isEmpty else {
             log.info("Transcribe called with 0 samples — skipping")
