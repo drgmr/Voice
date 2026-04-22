@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+
+# Xcode per-user state
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+
+# Xcode build artifacts
+build/
+DerivedData/
+
+# Swift Package Manager local caches
+.swiftpm/
+.build/
+
+# Pencil working backups
+*.pen.backup
