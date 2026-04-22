@@ -19,8 +19,16 @@ nonisolated struct TranscriptionOutput: Sendable, Equatable {
 /// chip-recommended model on first use; the first call blocks until download
 /// and specialization complete (can take minutes over slow networks). All
 /// subsequent calls reuse the loaded pipeline.
+///
+/// Concurrency note: because `WhisperKit.init` is non-isolated async, the
+/// actor suspends during load. That means prewarm and a user-triggered
+/// transcription can interleave inside `loadedPipeline()` via actor
+/// reentrancy. To prevent double-loading we cache the in-flight load as a
+/// `Task` — the second entrant awaits the same task rather than starting
+/// its own.
 actor Transcriber {
     private var whisperKit: WhisperKit?
+    private var loadTask: Task<WhisperKit, Error>?
     private let log = Logger(subsystem: "com.drgmr.Voice", category: "transcriber")
 
     /// Load (and download if needed) the recommended WhisperKit model so the
@@ -66,21 +74,37 @@ actor Transcriber {
     private func loadedPipeline() async throws -> WhisperKit {
         if let whisperKit { return whisperKit }
 
+        // Another caller is already loading — attach to its Task.
+        if let loadTask {
+            return try await loadTask.value
+        }
+
         let modelName = WhisperKit.recommendedModels().default
         log.info("Loading WhisperKit model: \(modelName, privacy: .public) — first call may download ~600MB")
         let start = Date()
 
-        let config = WhisperKitConfig(
-            model: modelName,
-            verbose: false,
-            logLevel: .info,
-            load: true,
-            download: true
-        )
-        let instance = try await WhisperKit(config)
-        whisperKit = instance
-        let elapsed = Date().timeIntervalSince(start)
-        log.info("WhisperKit model loaded in \(String(format: "%.2f", elapsed))s")
-        return instance
+        let task = Task { () throws -> WhisperKit in
+            let config = WhisperKitConfig(
+                model: modelName,
+                verbose: false,
+                logLevel: .info,
+                load: true,
+                download: true
+            )
+            return try await WhisperKit(config)
+        }
+        loadTask = task
+
+        do {
+            let instance = try await task.value
+            whisperKit = instance
+            loadTask = nil
+            let elapsed = Date().timeIntervalSince(start)
+            log.info("WhisperKit model loaded in \(String(format: "%.2f", elapsed))s")
+            return instance
+        } catch {
+            loadTask = nil
+            throw error
+        }
     }
 }
