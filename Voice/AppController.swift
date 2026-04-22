@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import Foundation
 import Observation
@@ -16,6 +17,7 @@ final class AppController {
     private(set) var recordingStartedAt: Date?
     private(set) var lastTranscription: String?
     private(set) var errorMessage: String?
+    private(set) var recentHistory: [TranscriptionEntry] = []
 
     /// Recording started via a quick-tap and is waiting for a second tap to stop.
     /// When `true`, the next Fn press stops recording; when `false`, a release
@@ -23,18 +25,24 @@ final class AppController {
     private var awaitingQuickTapStop = false
 
     private static let quickTapMaxDuration: TimeInterval = 0.28
+    private static let sampleRate: Double = 16_000
 
     private let hotkey = Hotkey()
     private let recorder = Recorder()
     private let transcriber = Transcriber()
     private let postProcessor = PostProcessor()
     private let paster = Paster()
+    private let history: HistoryStore?
 
     private var pillWindow: PillWindowController?
 
     private let log = Logger(subsystem: "com.drgmr.Voice", category: "controller")
 
     init() {
+        // Open SQLite-backed history store; if it fails, history is disabled
+        // for this session but nothing else is affected.
+        self.history = (try? HistoryStore())
+
         hotkey.onFnPress = { [weak self] in
             self?.handleFnPress()
         }
@@ -61,8 +69,14 @@ final class AppController {
             }
         }
 
+        if history == nil {
+            log.error("HistoryStore failed to open — history disabled for this session")
+        }
+
         // Float the pill. It observes `state` directly and animates in/out.
         pillWindow = PillWindowController(controller: self)
+
+        Task { await self.reloadHistory() }
     }
 
     // MARK: - Hotkey event handlers (sole entrypoints for Fn/Esc semantics)
@@ -166,8 +180,16 @@ final class AppController {
         log.info("Post-processed \(cleaned.count) chars: \"\(cleaned, privacy: .public)\"")
 
         if !cleaned.isEmpty {
+            let frontAppBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+            let durationMs = Int((Double(samples.count) / Self.sampleRate) * 1000)
             paster.paste(cleaned)
             lastTranscription = cleaned
+            recordEntry(
+                rawText: rawTrimmed,
+                finalText: cleaned,
+                durationMs: durationMs,
+                appBundle: frontAppBundle
+            )
         } else {
             log.info("Empty output — skipping paste")
             lastTranscription = "(empty)"
@@ -175,5 +197,54 @@ final class AppController {
         recordingStartedAt = nil
         awaitingQuickTapStop = false
         state = .idle
+    }
+
+    // MARK: - History
+
+    func reloadHistory() async {
+        guard let history else { return }
+        do {
+            let entries = try await history.recent(limit: 100)
+            recentHistory = entries
+            log.info("Loaded \(entries.count) history entries")
+        } catch {
+            log.error("Failed to load history: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    func clearHistory() async {
+        guard let history else { return }
+        do {
+            try await history.clear()
+            recentHistory = []
+        } catch {
+            log.error("Failed to clear history: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func recordEntry(
+        rawText: String,
+        finalText: String,
+        durationMs: Int,
+        appBundle: String?
+    ) {
+        guard let history else { return }
+        let entry = TranscriptionEntry(
+            id: nil,
+            createdAt: .now,
+            durationMs: durationMs,
+            rawText: rawText,
+            finalText: finalText,
+            language: nil,
+            appBundleId: appBundle
+        )
+        Task { [history] in
+            do {
+                _ = try await history.insert(entry)
+                await self.reloadHistory()
+            } catch {
+                self.log.error("Failed to record history entry: \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 }

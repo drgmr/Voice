@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct MenuBarContent: View {
@@ -13,9 +14,18 @@ struct MenuBarContent: View {
             Text("Transcribing…")
         }
 
-        if let text = controller.lastTranscription, !text.isEmpty {
+        let recent = Array(controller.recentHistory.prefix(5))
+        if !recent.isEmpty {
             Divider()
-            Text("Last: \(text.prefix(60))")
+            Section("Recent") {
+                ForEach(recent, id: \.id) { entry in
+                    Button {
+                        copyToClipboard(entry.finalText)
+                    } label: {
+                        Text(preview(for: entry))
+                    }
+                }
+            }
         }
 
         if let err = controller.errorMessage {
@@ -36,5 +46,18 @@ struct MenuBarContent: View {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q", modifiers: .command)
+    }
+
+    private func preview(for entry: TranscriptionEntry) -> String {
+        let maxLen = 60
+        let text = entry.finalText.replacingOccurrences(of: "\n", with: " ")
+        if text.count <= maxLen { return text }
+        return String(text.prefix(maxLen)) + "…"
+    }
+
+    private func copyToClipboard(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
     }
 }
