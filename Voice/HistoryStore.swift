@@ -72,6 +72,12 @@ actor HistoryStore {
                 t.column("app_bundle_id", .text)
             }
         }
+        m.registerMigration("add_fts5_index") { db in
+            try db.create(virtualTable: "transcriptions_fts", using: FTS5()) { t in
+                t.synchronize(withTable: TranscriptionEntry.databaseTableName)
+                t.column("final_text")
+            }
+        }
         return m
     }
 
@@ -103,6 +109,23 @@ actor HistoryStore {
     func count() throws -> Int {
         try dbQueue.read { db in
             try TranscriptionEntry.fetchCount(db)
+        }
+    }
+
+    func search(_ query: String, limit: Int = 100) throws -> [TranscriptionEntry] {
+        try dbQueue.read { db in
+            guard let pattern = FTS5Pattern(matchingAllTokensIn: query) else {
+                return []
+            }
+            let sql = """
+                SELECT transcriptions.*
+                FROM transcriptions
+                JOIN transcriptions_fts ON transcriptions_fts.rowid = transcriptions.id
+                WHERE transcriptions_fts MATCH ?
+                ORDER BY transcriptions.created_at DESC
+                LIMIT ?
+                """
+            return try TranscriptionEntry.fetchAll(db, sql: sql, arguments: [pattern, limit])
         }
     }
 }

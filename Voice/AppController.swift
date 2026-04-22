@@ -19,6 +19,7 @@ final class AppController {
     private(set) var errorMessage: String?
     private(set) var recentHistory: [TranscriptionEntry] = []
     private(set) var vocabulary: [VocabularyEntry] = []
+    let preferences = Preferences()
 
     /// Recording started via a quick-tap and is waiting for a second tap to stop.
     /// When `true`, the next Fn press stops recording; when `false`, a release
@@ -230,6 +231,18 @@ final class AppController {
             recentHistory = []
         } catch {
             log.error("Failed to clear history: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    func searchHistory(_ query: String) async -> [TranscriptionEntry] {
+        guard let history else { return [] }
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        do {
+            return try await history.search(trimmed)
+        } catch {
+            log.error("History search failed: \(error.localizedDescription, privacy: .public)")
+            return []
         }
     }
 

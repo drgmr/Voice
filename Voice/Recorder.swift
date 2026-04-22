@@ -131,14 +131,16 @@ final class Recorder: NSObject, @unchecked Sendable {
     // MARK: - Device selection
 
     private func preferredInputDevice() -> AVCaptureDevice? {
-        let discovery = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.microphone, .external],
-            mediaType: .audio,
-            position: .unspecified
-        )
-        let devices = discovery.devices
+        let devices = Self.availableInputDevices()
 
-        // Preferred: match the CoreAudio-reported built-in microphone by UID.
+        // Explicit user preference (set via Settings → General).
+        if let savedID = UserDefaults.standard.string(forKey: Preferences.inputDeviceKey),
+           let match = devices.first(where: { $0.uniqueID == savedID }) {
+            return match
+        }
+
+        // Automatic: prefer the CoreAudio-reported built-in microphone by
+        // UID. This avoids Bluetooth HFP aggregate-device pitfalls.
         if let builtInUID = Self.builtInMicrophoneUID(),
            let match = devices.first(where: { $0.uniqueID == builtInUID }) {
             return match
@@ -152,9 +154,17 @@ final class Recorder: NSObject, @unchecked Sendable {
             return named
         }
 
-        // Last resort: system default (may be Bluetooth, which has the
-        // aggregate-device fragility this class was written to avoid).
+        // Last resort: system default.
         return AVCaptureDevice.default(for: .audio)
+    }
+
+    /// All audio input devices discoverable by AVCapture, for Settings UI.
+    static func availableInputDevices() -> [AVCaptureDevice] {
+        AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.microphone, .external],
+            mediaType: .audio,
+            position: .unspecified
+        ).devices
     }
 
     private static func builtInMicrophoneUID() -> String? {

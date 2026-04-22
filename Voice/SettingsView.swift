@@ -1,4 +1,7 @@
 import AppKit
+import AVFoundation
+import Combine
+import CoreGraphics
 import SwiftUI
 
 struct SettingsView: View {
@@ -13,7 +16,7 @@ struct SettingsView: View {
             HistoryTab()
                 .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
 
-            PlaceholderTab(title: "Permissions", hint: "Microphone, Accessibility, and Input Monitoring status — coming soon.")
+            PermissionsTab()
                 .tabItem { Label("Permissions", systemImage: "checkmark.shield") }
         }
         .frame(minWidth: 620, minHeight: 460)
@@ -24,14 +27,30 @@ struct SettingsView: View {
 
 private struct GeneralTab: View {
     @Environment(AppController.self) private var controller
+    @State private var availableDevices: [AVCaptureDevice] = []
 
     var body: some View {
+        @Bindable var preferences = controller.preferences
+
         Form {
             Section("Activation") {
                 LabeledContent("Hotkey") {
                     Text("Fn").font(.body.monospaced())
                 }
                 Text("Press and hold Fn to record, or quick-tap to toggle. Esc cancels.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Microphone") {
+                Picker("Input device", selection: $preferences.inputDeviceID) {
+                    Text("Automatic (built-in preferred)").tag(String?.none)
+                    Divider()
+                    ForEach(availableDevices, id: \.uniqueID) { device in
+                        Text(device.localizedName).tag(String?.some(device.uniqueID))
+                    }
+                }
+                Text("Automatic avoids Bluetooth aggregate-device issues by preferring the built-in microphone. Pick a specific device to override.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -53,6 +72,9 @@ private struct GeneralTab: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear {
+            availableDevices = Recorder.availableInputDevices()
+        }
     }
 
     private var stateLabel: String {
@@ -69,14 +91,24 @@ private struct GeneralTab: View {
 private struct HistoryTab: View {
     @Environment(AppController.self) private var controller
     @State private var showingClearConfirmation = false
+    @State private var query: String = ""
+    @State private var searchResults: [TranscriptionEntry] = []
+    @State private var searchTask: Task<Void, Never>?
+
+    private var displayedEntries: [TranscriptionEntry] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? controller.recentHistory : searchResults
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("\(controller.recentHistory.count) \(controller.recentHistory.count == 1 ? "entry" : "entries")")
+            HStack(spacing: 10) {
+                TextField("Search transcriptions", text: $query)
+                    .textFieldStyle(.roundedBorder)
+                Spacer()
+                Text(countLabel)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Spacer()
                 Button(role: .destructive) {
                     showingClearConfirmation = true
                 } label: {
@@ -89,16 +121,12 @@ private struct HistoryTab: View {
 
             Divider()
 
-            if controller.recentHistory.isEmpty {
+            if displayedEntries.isEmpty {
                 Spacer()
-                ContentUnavailableView(
-                    "No transcriptions yet",
-                    systemImage: "clock.arrow.circlepath",
-                    description: Text("Hold or tap Fn to dictate something. Your history will appear here.")
-                )
+                emptyState
                 Spacer()
             } else {
-                List(controller.recentHistory, id: \.id) { entry in
+                List(displayedEntries, id: \.id) { entry in
                     HistoryRow(entry: entry)
                         .padding(.vertical, 4)
                 }
@@ -116,6 +144,53 @@ private struct HistoryTab: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This permanently removes every stored transcription. Audio was never stored.")
+        }
+        .onChange(of: query) { _, _ in
+            scheduleSearch()
+        }
+    }
+
+    @ViewBuilder
+    private var emptyState: some View {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            ContentUnavailableView(
+                "No transcriptions yet",
+                systemImage: "clock.arrow.circlepath",
+                description: Text("Hold or tap Fn to dictate something. Your history will appear here.")
+            )
+        } else {
+            ContentUnavailableView(
+                "No matches",
+                systemImage: "magnifyingglass",
+                description: Text("No transcription contains \"\(trimmed)\".")
+            )
+        }
+    }
+
+    private var countLabel: String {
+        let total = controller.recentHistory.count
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return "\(total) \(total == 1 ? "entry" : "entries")"
+        } else {
+            return "\(searchResults.count) of \(total)"
+        }
+    }
+
+    private func scheduleSearch() {
+        searchTask?.cancel()
+        let current = query
+        searchTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(220))
+            guard !Task.isCancelled else { return }
+            let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                searchResults = []
+            } else {
+                let results = await controller.searchHistory(trimmed)
+                searchResults = results
+            }
         }
     }
 }
@@ -305,18 +380,132 @@ private struct VocabularyRow: View {
     }
 }
 
-// MARK: - Placeholder
+// MARK: - Permissions
 
-private struct PlaceholderTab: View {
-    let title: String
-    let hint: String
+private struct PermissionsTab: View {
+    @State private var micStatus: AVAuthorizationStatus = .notDetermined
+    @State private var accessibilityGranted: Bool = false
+    @State private var inputMonitoringGranted: Bool = false
+
+    private let refreshTimer = Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        VStack(spacing: 12) {
-            Text(title).font(.title2.bold())
-            Text(hint).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        Form {
+            Section {
+                PermissionRow(
+                    title: "Microphone",
+                    description: "Required for audio capture.",
+                    status: micRowStatus,
+                    openSettings: {
+                        open("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
+                    }
+                )
+                PermissionRow(
+                    title: "Input Monitoring",
+                    description: "Required to detect the Fn hotkey globally.",
+                    status: inputMonitoringGranted ? .granted : .denied,
+                    openSettings: {
+                        open("x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")
+                    }
+                )
+                PermissionRow(
+                    title: "Accessibility",
+                    description: "Required to paste transcribed text via ⌘V synthesis.",
+                    status: accessibilityGranted ? .granted : .denied,
+                    openSettings: {
+                        open("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+                    }
+                )
+            } footer: {
+                Text("After granting a permission, re-launch Voice so the running binary picks up the new grant.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding()
+        .formStyle(.grouped)
+        .onAppear(perform: refresh)
+        .onReceive(refreshTimer) { _ in refresh() }
+    }
+
+    private var micRowStatus: PermissionRow.Status {
+        switch micStatus {
+        case .authorized: .granted
+        case .denied, .restricted: .denied
+        case .notDetermined: .pending
+        @unknown default: .pending
+        }
+    }
+
+    private func refresh() {
+        micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        accessibilityGranted = AXIsProcessTrusted()
+        inputMonitoringGranted = CGPreflightListenEventAccess()
+    }
+
+    private func open(_ urlString: String) {
+        guard let url = URL(string: urlString) else { return }
+        NSWorkspace.shared.open(url)
+    }
+}
+
+private struct PermissionRow: View {
+    enum Status {
+        case granted, denied, pending
+
+        var color: Color {
+            switch self {
+            case .granted: .green
+            case .denied: .red
+            case .pending: .yellow
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .granted: "checkmark.circle.fill"
+            case .denied: "xmark.circle.fill"
+            case .pending: "questionmark.circle.fill"
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .granted: "Granted"
+            case .denied: "Not granted"
+            case .pending: "Not yet requested"
+            }
+        }
+    }
+
+    let title: String
+    let description: String
+    let status: Status
+    let openSettings: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: status.symbol)
+                .foregroundStyle(status.color)
+                .font(.title3)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.headline)
+                Text(description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(status.label)
+                    .font(.caption)
+                    .foregroundStyle(status.color)
+            }
+
+            Spacer()
+
+            Button("Open Settings") {
+                openSettings()
+            }
+            .controlSize(.small)
+        }
+        .padding(.vertical, 4)
     }
 }
