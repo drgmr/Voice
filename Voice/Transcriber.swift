@@ -31,13 +31,20 @@ actor Transcriber {
     private var loadTask: Task<WhisperKit, Error>?
     private let log = Logger(subsystem: "com.drgmr.Voice", category: "transcriber")
 
+    /// Download fraction (0.0 – 1.0) reported from `WhisperKit.download`.
+    typealias ProgressHandler = @Sendable (Double) -> Void
+
     /// Load (and download if needed) the recommended WhisperKit model so the
     /// first user transcription doesn't pay the pipeline-load latency. Safe
     /// to call multiple times — subsequent calls are a no-op. Throws on
     /// failure so the welcome flow can surface the error.
-    func prewarm() async throws {
+    ///
+    /// `onProgress` fires during the download phase with a 0.0 – 1.0
+    /// fraction. When download completes the loader moves on to Core ML
+    /// specialization and the callback fires once more with 1.0.
+    func prewarm(onProgress: ProgressHandler? = nil) async throws {
         let start = Date()
-        _ = try await loadedPipeline()
+        _ = try await loadedPipeline(onProgress: onProgress)
         let elapsed = Date().timeIntervalSince(start)
         log.info("WhisperKit prewarm complete in \(String(format: "%.2f", elapsed))s")
     }
@@ -50,7 +57,7 @@ actor Transcriber {
 
         let start = Date()
         do {
-            let whisper = try await loadedPipeline()
+            let whisper = try await loadedPipeline(onProgress: nil)
             log.info("Transcribing \(samples.count) samples (\(String(format: "%.2f", Double(samples.count) / 16_000.0))s)…")
             let results = try await whisper.transcribe(audioArray: samples)
             let text = results.map(\.text).joined(separator: " ")
@@ -68,10 +75,12 @@ actor Transcriber {
         }
     }
 
-    private func loadedPipeline() async throws -> WhisperKit {
+    private func loadedPipeline(onProgress: ProgressHandler?) async throws -> WhisperKit {
         if let whisperKit { return whisperKit }
 
-        // Another caller is already loading — attach to its Task.
+        // Another caller is already loading — attach to its Task. Progress
+        // callbacks from the second caller are dropped; the first caller
+        // already owns the pipeline's progress stream.
         if let loadTask {
             return try await loadTask.value
         }
@@ -81,12 +90,20 @@ actor Transcriber {
         let start = Date()
 
         let task = Task { () throws -> WhisperKit in
+            // Phase 1: download model files with progress.
+            let modelURL = try await WhisperKit.download(
+                variant: modelName,
+                progressCallback: { progress in
+                    onProgress?(progress.fractionCompleted)
+                }
+            )
+            // Phase 2: load & specialize the downloaded model.
             let config = WhisperKitConfig(
-                model: modelName,
+                modelFolder: modelURL.path,
                 verbose: false,
                 logLevel: .info,
                 load: true,
-                download: true
+                download: false
             )
             return try await WhisperKit(config)
         }

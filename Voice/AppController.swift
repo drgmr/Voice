@@ -19,6 +19,7 @@ final class AppController {
     /// load-bearing dependency.
     enum ModelLoadState: Equatable {
         case preparing
+        case downloading(fraction: Double)
         case loading
         case ready
         case failed(String)
@@ -110,16 +111,7 @@ final class AppController {
         // Prewarm the transcription and cleanup models so the first user
         // dictation doesn't pay the load latency. Each runs in its own
         // detached Task so a slow one doesn't block the other.
-        Task { [transcriber, log] in
-            self.modelLoadState = .loading
-            do {
-                try await transcriber.prewarm()
-                self.modelLoadState = .ready
-            } catch {
-                self.modelLoadState = .failed(error.localizedDescription)
-                log.error("WhisperKit prewarm failed: \(error.localizedDescription, privacy: .public)")
-            }
-        }
+        startModelLoad()
         Task { [postProcessor] in
             await postProcessor.prewarm()
         }
@@ -136,24 +128,42 @@ final class AppController {
 
     func retryModelLoad() {
         guard case .failed = modelLoadState else { return }
-        let transcriber = self.transcriber
-        let log = self.log
-        Task { [transcriber, log] in
-            self.modelLoadState = .loading
-            do {
-                try await transcriber.prewarm()
-                self.modelLoadState = .ready
-            } catch {
-                self.modelLoadState = .failed(error.localizedDescription)
-                log.error("WhisperKit prewarm retry failed: \(error.localizedDescription, privacy: .public)")
-            }
-        }
+        startModelLoad()
     }
 
     func finishOnboarding() {
         preferences.hasCompletedOnboarding = true
         welcomeWindow?.hide()
         welcomeWindow = nil
+    }
+
+    private func startModelLoad() {
+        let transcriber = self.transcriber
+        let log = self.log
+        Task { [transcriber, log] in
+            self.modelLoadState = .downloading(fraction: 0)
+            do {
+                try await transcriber.prewarm { [weak self] fraction in
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        // At 100% the download is done; swap to the
+                        // indeterminate "loading / specializing" state until
+                        // the Core ML pipeline fully comes up.
+                        if fraction >= 1.0 {
+                            if case .loading = self.modelLoadState {} else {
+                                self.modelLoadState = .loading
+                            }
+                        } else {
+                            self.modelLoadState = .downloading(fraction: fraction)
+                        }
+                    }
+                }
+                self.modelLoadState = .ready
+            } catch {
+                self.modelLoadState = .failed(error.localizedDescription)
+                log.error("WhisperKit prewarm failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 
     // MARK: - Hotkey event handlers (sole entrypoints for Fn/Esc semantics)
