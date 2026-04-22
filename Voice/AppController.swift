@@ -13,12 +13,29 @@ final class AppController {
         case transcribing
     }
 
+    /// High-level status of the WhisperKit speech model, used by the welcome
+    /// flow. FoundationModels availability is tracked internally by
+    /// PostProcessor; we only gate onboarding on Whisper because it's the
+    /// load-bearing dependency.
+    enum ModelLoadState: Equatable {
+        case preparing
+        case loading
+        case ready
+        case failed(String)
+
+        var isReady: Bool {
+            if case .ready = self { return true }
+            return false
+        }
+    }
+
     private(set) var state: State = .idle
     private(set) var recordingStartedAt: Date?
     private(set) var lastTranscription: String?
     private(set) var errorMessage: String?
     private(set) var recentHistory: [TranscriptionEntry] = []
     private(set) var vocabulary: [VocabularyEntry] = []
+    private(set) var modelLoadState: ModelLoadState = .preparing
     let preferences = Preferences()
 
     /// Recording started via a quick-tap and is waiting for a second tap to stop.
@@ -38,6 +55,7 @@ final class AppController {
     private let vocabularyStore: VocabularyStore?
 
     private var pillWindow: PillWindowController?
+    private var welcomeWindow: WelcomeWindowController?
 
     private let log = Logger(subsystem: "com.drgmr.Voice", category: "controller")
 
@@ -92,12 +110,50 @@ final class AppController {
         // Prewarm the transcription and cleanup models so the first user
         // dictation doesn't pay the load latency. Each runs in its own
         // detached Task so a slow one doesn't block the other.
-        Task { [transcriber] in
-            await transcriber.prewarm()
+        Task { [transcriber, log] in
+            self.modelLoadState = .loading
+            do {
+                try await transcriber.prewarm()
+                self.modelLoadState = .ready
+            } catch {
+                self.modelLoadState = .failed(error.localizedDescription)
+                log.error("WhisperKit prewarm failed: \(error.localizedDescription, privacy: .public)")
+            }
         }
         Task { [postProcessor] in
             await postProcessor.prewarm()
         }
+
+        // Show the welcome window on first launch. It observes modelLoadState
+        // and transitions from "setting up" to "ready" as the prewarm completes.
+        if !preferences.hasCompletedOnboarding {
+            welcomeWindow = WelcomeWindowController(controller: self)
+            welcomeWindow?.show()
+        }
+    }
+
+    // MARK: - Onboarding
+
+    func retryModelLoad() {
+        guard case .failed = modelLoadState else { return }
+        let transcriber = self.transcriber
+        let log = self.log
+        Task { [transcriber, log] in
+            self.modelLoadState = .loading
+            do {
+                try await transcriber.prewarm()
+                self.modelLoadState = .ready
+            } catch {
+                self.modelLoadState = .failed(error.localizedDescription)
+                log.error("WhisperKit prewarm retry failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    func finishOnboarding() {
+        preferences.hasCompletedOnboarding = true
+        welcomeWindow?.hide()
+        welcomeWindow = nil
     }
 
     // MARK: - Hotkey event handlers (sole entrypoints for Fn/Esc semantics)

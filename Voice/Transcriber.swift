@@ -33,16 +33,13 @@ actor Transcriber {
 
     /// Load (and download if needed) the recommended WhisperKit model so the
     /// first user transcription doesn't pay the pipeline-load latency. Safe
-    /// to call multiple times — subsequent calls are a no-op.
-    func prewarm() async {
+    /// to call multiple times — subsequent calls are a no-op. Throws on
+    /// failure so the welcome flow can surface the error.
+    func prewarm() async throws {
         let start = Date()
-        do {
-            _ = try await loadedPipeline()
-            let elapsed = Date().timeIntervalSince(start)
-            log.info("WhisperKit prewarm complete in \(String(format: "%.2f", elapsed))s")
-        } catch {
-            log.error("WhisperKit prewarm failed: \(error.localizedDescription, privacy: .public)")
-        }
+        _ = try await loadedPipeline()
+        let elapsed = Date().timeIntervalSince(start)
+        log.info("WhisperKit prewarm complete in \(String(format: "%.2f", elapsed))s")
     }
 
     func transcribe(samples: [Float]) async -> TranscriptionOutput {
