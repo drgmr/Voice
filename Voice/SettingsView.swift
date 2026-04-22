@@ -1,8 +1,6 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @Environment(AppController.self) private var controller
-
     var body: some View {
         TabView {
             GeneralTab()

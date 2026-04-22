@@ -27,6 +27,7 @@ final class AppController {
     private let hotkey = Hotkey()
     private let recorder = Recorder()
     private let transcriber = Transcriber()
+    private let postProcessor = PostProcessor()
     private let paster = Paster()
 
     private var pillWindow: PillWindowController?
@@ -149,20 +150,26 @@ final class AppController {
         log.info("stopAndTranscribe → got \(samples.count) samples, state=transcribing")
         state = .transcribing
 
-        let text = await transcriber.transcribe(samples: samples)
+        let rawText = await transcriber.transcribe(samples: samples)
         guard state == .transcribing else {
             log.info("Transcription completed but state changed — discarding result")
             return
         }
+        let rawTrimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        log.info("Raw transcription \(rawTrimmed.count) chars: \"\(rawTrimmed, privacy: .public)\"")
 
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        log.info("Transcription returned \(trimmed.count) chars: \"\(trimmed, privacy: .public)\"")
+        let cleaned = await postProcessor.process(rawTrimmed)
+        guard state == .transcribing else {
+            log.info("Post-processing completed but state changed — discarding result")
+            return
+        }
+        log.info("Post-processed \(cleaned.count) chars: \"\(cleaned, privacy: .public)\"")
 
-        if !trimmed.isEmpty {
-            paster.paste(trimmed)
-            lastTranscription = trimmed
+        if !cleaned.isEmpty {
+            paster.paste(cleaned)
+            lastTranscription = cleaned
         } else {
-            log.info("Empty transcription — skipping paste")
+            log.info("Empty output — skipping paste")
             lastTranscription = "(empty)"
         }
         recordingStartedAt = nil
