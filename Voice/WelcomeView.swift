@@ -9,7 +9,7 @@ struct WelcomeView: View {
     @Bindable var controller: AppController
 
     var body: some View {
-        VStack(spacing: 26) {
+        VStack(spacing: 22) {
             AppLogo()
 
             Group {
@@ -44,11 +44,14 @@ struct WelcomeView: View {
             .frame(maxWidth: .infinity)
             .animation(.smooth(duration: 0.28), value: stateKey)
 
+            Spacer(minLength: 4)
+
             ModelFooter()
         }
         .padding(.horizontal, 48)
-        .padding(.vertical, 40)
-        .frame(minWidth: 520, minHeight: 520)
+        .padding(.top, 32)
+        .padding(.bottom, 28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
@@ -179,7 +182,7 @@ private struct ReadyStage: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
+                .fill(.quaternary.opacity(0.5))
         )
         .frame(maxWidth: 440)
     }
@@ -198,10 +201,10 @@ private struct ShortcutRow: View {
                 .padding(.vertical, 5)
                 .background(
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color(nsColor: .controlBackgroundColor))
+                        .fill(Color(nsColor: .windowBackgroundColor))
                         .overlay(
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                                .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
                         )
                 )
                 .frame(minWidth: 44)
@@ -226,10 +229,11 @@ private struct PermissionsCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Permissions Voice needs")
+            Text("Permissions")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
+                .tracking(0.4)
 
             PermissionItemRow(
                 title: "Microphone",
@@ -253,7 +257,7 @@ private struct PermissionsCard: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
+                .fill(.quaternary.opacity(0.5))
         )
         .frame(maxWidth: 440)
         .onAppear(perform: refresh)

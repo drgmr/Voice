@@ -17,11 +17,12 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
         self.controller = controller
 
         window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 480),
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 720),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
+        window.minSize = NSSize(width: 560, height: 720)
         window.title = "Welcome to Voice"
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
