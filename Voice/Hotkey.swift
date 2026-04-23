@@ -25,7 +25,7 @@ final class Hotkey {
 
     private static let escapeKeyCode: Int64 = 53
 
-    private let log = Logger(subsystem: "com.drgmr.Voice", category: "hotkey")
+    private let log = Logger.voice("hotkey")
 
     enum HotkeyError: Error, LocalizedError {
         case tapCreationFailed

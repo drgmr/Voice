@@ -11,7 +11,7 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
     private let window: NSWindow
     private let hosting: NSHostingView<WelcomeView>
     private weak var controller: AppController?
-    private let log = Logger(subsystem: "com.drgmr.Voice", category: "welcome")
+    private let log = Logger.voice("welcome")
 
     init(controller: AppController) {
         self.controller = controller

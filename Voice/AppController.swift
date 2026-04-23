@@ -46,19 +46,18 @@ final class AppController {
     private let postProcessor = PostProcessor()
     private let paster = Paster()
     private let history: HistoryStore?
-    private let vocabularyStore: VocabularyStore?
+    private let vocabularyStore = VocabularyStore()
 
     private var pillWindow: PillWindowController?
     private var welcomeWindow: WelcomeWindowController?
 
-    private let log = Logger(subsystem: "com.drgmr.Voice", category: "controller")
+    private let log = Logger.voice("controller")
 
     init() {
-        // Opening the stores is best-effort — if SQLite or the vocabulary
-        // file fails to open, the app still runs, just without history
-        // or custom vocabulary for this session.
+        // History is best-effort — if SQLite fails to open, the app
+        // still runs, just without history for this session. Vocabulary
+        // loads lazily so its store can't fail to construct.
         self.history = (try? HistoryStore())
-        self.vocabularyStore = (try? VocabularyStore())
 
         hotkey.onFnPress = { [weak self] in
             self?.handleFnPress()
@@ -88,9 +87,6 @@ final class AppController {
 
         if history == nil {
             log.error("HistoryStore failed to open — history disabled for this session")
-        }
-        if vocabularyStore == nil {
-            log.error("VocabularyStore failed to open — vocabulary disabled for this session")
         }
 
         pillWindow = PillWindowController(controller: self)
@@ -322,14 +318,12 @@ final class AppController {
     // MARK: - Vocabulary
 
     func reloadVocabulary() async {
-        guard let vocabularyStore else { return }
         let entries = await vocabularyStore.load()
         vocabulary = entries
         log.info("Loaded \(entries.count) vocabulary entries")
     }
 
     func saveVocabulary(_ entries: [VocabularyEntry]) async {
-        guard let vocabularyStore else { return }
         do {
             try await vocabularyStore.save(entries)
             vocabulary = entries

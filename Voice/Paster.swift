@@ -7,7 +7,7 @@ final class Paster {
     private static let vKeyCode: CGKeyCode = 0x09
     private static let restoreDelay: Duration = .milliseconds(80)
 
-    private let log = Logger(subsystem: "com.drgmr.Voice", category: "paster")
+    private let log = Logger.voice("paster")
 
     /// Non-destructive pasteboard write used by the menu bar and history
     /// copy buttons. Does not synthesize ⌘V — callers just want the text

@@ -14,7 +14,7 @@ import os
 /// ready) or if the call fails. Users never see an error here — worst
 /// case they paste the raw Whisper output.
 actor PostProcessor {
-    private let log = Logger(subsystem: "com.drgmr.Voice", category: "postprocessor")
+    private let log = Logger.voice("postprocessor")
 
     /// Spin up a LanguageModelSession and ask the system model to prewarm so
     /// the first real cleanup call doesn't pay the load latency. No-op when

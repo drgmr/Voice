@@ -21,18 +21,10 @@ nonisolated struct VocabularyEntry: Codable, Identifiable, Sendable, Equatable {
 /// defaults on first launch.
 actor VocabularyStore {
     let url: URL
-    private let log = Logger(subsystem: "com.drgmr.Voice", category: "vocabulary")
+    private let log = Logger.voice("vocabulary")
 
-    init() throws {
-        let fm = FileManager.default
-        let base = try fm.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        ).appendingPathComponent("Voice", isDirectory: true)
-        try fm.createDirectory(at: base, withIntermediateDirectories: true)
-        self.url = base.appendingPathComponent("vocabulary.json")
+    init() {
+        self.url = AppPaths.vocabularyFile
     }
 
     func load() -> [VocabularyEntry] {

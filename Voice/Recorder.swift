@@ -38,7 +38,7 @@ final class Recorder: NSObject, @unchecked Sendable {
 
     private let bufferLock = OSAllocatedUnfairLock(initialState: [Float]())
     private let processingQueue = DispatchQueue(label: "com.drgmr.Voice.recorder.capture")
-    private let log = Logger(subsystem: "com.drgmr.Voice", category: "recorder")
+    private let log = Logger.voice("recorder")
     private let firstBufferLogged = SafeBox(false)
 
     enum RecorderError: Error, LocalizedError {

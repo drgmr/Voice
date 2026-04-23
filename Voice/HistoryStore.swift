@@ -39,24 +39,13 @@ actor HistoryStore {
     let databaseURL: URL
 
     private let dbQueue: DatabaseQueue
-    private let log = Logger(subsystem: "com.drgmr.Voice", category: "history")
+    private let log = Logger.voice("history")
 
     init() throws {
-        let fm = FileManager.default
-        let appSupport = try fm.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        let base = appSupport.appendingPathComponent("Voice", isDirectory: true)
-        try fm.createDirectory(at: base, withIntermediateDirectories: true)
-        let dbURL = base.appendingPathComponent("history.sqlite")
-        self.databaseURL = dbURL
-
-        self.dbQueue = try DatabaseQueue(path: dbURL.path)
+        self.databaseURL = AppPaths.historyDatabase
+        self.dbQueue = try DatabaseQueue(path: databaseURL.path)
         try Self.migrator.migrate(dbQueue)
-        log.info("HistoryStore opened at \(dbURL.path, privacy: .public)")
+        log.info("HistoryStore opened at \(self.databaseURL.path, privacy: .public)")
     }
 
     private static var migrator: DatabaseMigrator {

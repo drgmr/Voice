@@ -29,30 +29,12 @@ nonisolated struct TranscriptionOutput: Sendable, Equatable {
 actor Transcriber {
     private var whisperKit: WhisperKit?
     private var loadTask: Task<WhisperKit, Error>?
-    private let log = Logger(subsystem: "com.drgmr.Voice", category: "transcriber")
+    private let log = Logger.voice("transcriber")
 
     /// Download fraction (0.0 – 1.0) reported from `WhisperKit.download`.
     typealias ProgressHandler = @Sendable (Double) -> Void
 
     // MARK: - Model cache location
-
-    /// Root directory the app owns for WhisperKit model downloads. Pinned
-    /// under Application Support so the cache is not shared with other
-    /// Hub users and so presence is something the app can reason about
-    /// (e.g., onboarding is driven by model presence, not a persisted
-    /// flag).
-    nonisolated static let modelsBaseURL: URL = {
-        let fm = FileManager.default
-        let support = (try? fm.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )) ?? fm.temporaryDirectory
-        let dir = support.appending(component: "Voice").appending(component: "models")
-        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }()
 
     /// Returns `true` if the recommended WhisperKit model is already
     /// downloaded and looks complete (has the three core Core ML bundles).
@@ -60,7 +42,7 @@ actor Transcriber {
     /// show the welcome window so the user sees the download progress.
     nonisolated static func isModelCached() -> Bool {
         let modelName = WhisperKit.recommendedModels().default
-        let modelDir = modelsBaseURL
+        let modelDir = AppPaths.modelsBase
             .appending(component: "models")
             .appending(component: "argmaxinc")
             .appending(component: "whisperkit-coreml")
@@ -133,7 +115,7 @@ actor Transcriber {
             // Phase 1: download model files with progress.
             let modelURL = try await WhisperKit.download(
                 variant: modelName,
-                downloadBase: Self.modelsBaseURL,
+                downloadBase: AppPaths.modelsBase,
                 progressCallback: { progress in
                     onProgress?(progress.fractionCompleted)
                 }

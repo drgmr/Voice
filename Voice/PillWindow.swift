@@ -11,7 +11,7 @@ import os
 final class PillWindowController {
     private let panel: NSPanel
     private let hosting: NSHostingView<PillRootView>
-    private let log = Logger(subsystem: "com.drgmr.Voice", category: "pill")
+    private let log = Logger.voice("pill")
 
     private static let bottomPadding: CGFloat = 60
 
