@@ -27,6 +27,11 @@ nonisolated private final class SafeBox<T>: @unchecked Sendable {
 /// no aggregate device is built, and `AVCaptureAudioDataOutput.audioSettings`
 /// does the format conversion for us.
 final class Recorder: NSObject, @unchecked Sendable {
+    /// Whisper's native input rate. Used for the AVCapture audio settings
+    /// and as the divisor everywhere that converts sample counts into
+    /// seconds.
+    nonisolated static let sampleRate: Double = 16_000
+
     private let session = AVCaptureSession()
     private var currentInput: AVCaptureDeviceInput?
     private var currentOutput: AVCaptureAudioDataOutput?
@@ -75,7 +80,7 @@ final class Recorder: NSObject, @unchecked Sendable {
         let output = AVCaptureAudioDataOutput()
         output.audioSettings = [
             AVFormatIDKey: Int(kAudioFormatLinearPCM),
-            AVSampleRateKey: 16_000,
+            AVSampleRateKey: Int(Self.sampleRate),
             AVNumberOfChannelsKey: 1,
             AVLinearPCMBitDepthKey: 32,
             AVLinearPCMIsFloatKey: true,
@@ -103,7 +108,7 @@ final class Recorder: NSObject, @unchecked Sendable {
             samples.removeAll(keepingCapacity: false)
             return out
         }
-        let seconds = Double(result.count) / 16_000.0
+        let seconds = Double(result.count) / Self.sampleRate
         log.info("Recorder.stop — \(result.count) samples captured (\(String(format: "%.2f", seconds))s)")
         return result
     }

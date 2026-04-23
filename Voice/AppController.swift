@@ -13,21 +13,15 @@ final class AppController {
         case transcribing
     }
 
-    /// High-level status of the WhisperKit speech model, used by the welcome
-    /// flow. FoundationModels availability is tracked internally by
-    /// PostProcessor; we only gate onboarding on Whisper because it's the
-    /// load-bearing dependency.
+    /// High-level status of the WhisperKit speech model, observed by the
+    /// welcome window. FoundationModels availability is tracked internally by
+    /// PostProcessor; onboarding gates on Whisper because it's load-bearing.
     enum ModelLoadState: Equatable {
         case preparing
         case downloading(fraction: Double)
         case loading
         case ready
         case failed(String)
-
-        var isReady: Bool {
-            if case .ready = self { return true }
-            return false
-        }
     }
 
     private(set) var state: State = .idle
@@ -45,7 +39,6 @@ final class AppController {
     private var awaitingQuickTapStop = false
 
     private static let quickTapMaxDuration: TimeInterval = 0.28
-    private static let sampleRate: Double = 16_000
 
     private let hotkey = Hotkey()
     private let recorder = Recorder()
@@ -61,10 +54,10 @@ final class AppController {
     private let log = Logger(subsystem: "com.drgmr.Voice", category: "controller")
 
     init() {
-        // Open SQLite-backed history store; if it fails, history is disabled
-        // for this session but nothing else is affected.
+        // Opening the stores is best-effort — if SQLite or the vocabulary
+        // file fails to open, the app still runs, just without history
+        // or custom vocabulary for this session.
         self.history = (try? HistoryStore())
-        // JSON-backed vocabulary; seeded with defaults on first launch.
         self.vocabularyStore = (try? VocabularyStore())
 
         hotkey.onFnPress = { [weak self] in
@@ -100,7 +93,6 @@ final class AppController {
             log.error("VocabularyStore failed to open — vocabulary disabled for this session")
         }
 
-        // Float the pill. It observes `state` directly and animates in/out.
         pillWindow = PillWindowController(controller: self)
 
         Task {
@@ -108,19 +100,17 @@ final class AppController {
             await self.reloadVocabulary()
         }
 
-        // Prewarm the transcription and cleanup models so the first user
-        // dictation doesn't pay the load latency. Each runs in its own
-        // detached Task so a slow one doesn't block the other.
+        // Prewarm both models at launch so the first dictation doesn't pay
+        // the load latency. Split Tasks so a slow model load doesn't block
+        // the other.
         startModelLoad()
         Task { [postProcessor] in
             await postProcessor.prewarm()
         }
 
-        // Show the welcome window when the model isn't on disk yet — the
-        // welcome flow is what drives the download. On subsequent launches
-        // with the model cached we skip straight to the menu-bar app. If
-        // the user ever deletes the model, the welcome will come back next
-        // launch automatically.
+        // The welcome window is what drives the download, so we only show
+        // it when the model isn't cached yet. Wiping the model directory
+        // brings the welcome back automatically next launch.
         if !Transcriber.isModelCached() {
             welcomeWindow = WelcomeWindowController(controller: self)
             welcomeWindow?.show()
@@ -139,10 +129,8 @@ final class AppController {
         welcomeWindow = nil
     }
 
-    /// Re-open the welcome window on demand, regardless of whether onboarding
-    /// was previously completed. Used by the "Show Welcome Again" action in
-    /// Settings → General. Does not reset the onboarding flag — user can
-    /// still close the window without re-running Get Started.
+    /// Re-open the welcome window on demand — used by the "Show Welcome
+    /// Again" action in Settings → General.
     func showWelcomeAgain() {
         if welcomeWindow == nil {
             welcomeWindow = WelcomeWindowController(controller: self)
@@ -162,13 +150,9 @@ final class AppController {
                         // At 100% the download is done; swap to the
                         // indeterminate "loading / specializing" state until
                         // the Core ML pipeline fully comes up.
-                        if fraction >= 1.0 {
-                            if case .loading = self.modelLoadState {} else {
-                                self.modelLoadState = .loading
-                            }
-                        } else {
-                            self.modelLoadState = .downloading(fraction: fraction)
-                        }
+                        self.modelLoadState = fraction >= 1.0
+                            ? .loading
+                            : .downloading(fraction: fraction)
                     }
                 }
                 self.modelLoadState = .ready
@@ -281,7 +265,7 @@ final class AppController {
 
         if !cleaned.isEmpty {
             let frontAppBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-            let durationMs = Int((Double(samples.count) / Self.sampleRate) * 1000)
+            let durationMs = Int((Double(samples.count) / Recorder.sampleRate) * 1000)
             paster.paste(cleaned)
             lastTranscription = cleaned
             recordEntry(

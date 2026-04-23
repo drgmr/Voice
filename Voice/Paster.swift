@@ -9,6 +9,15 @@ final class Paster {
 
     private let log = Logger(subsystem: "com.drgmr.Voice", category: "paster")
 
+    /// Non-destructive pasteboard write used by the menu bar and history
+    /// copy buttons. Does not synthesize ⌘V — callers just want the text
+    /// on the clipboard for the user to paste later.
+    static func writeToClipboard(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+    }
+
     func paste(_ text: String) {
         guard !text.isEmpty else {
             log.info("Paste called with empty text — skipping")

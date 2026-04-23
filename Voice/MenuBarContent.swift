@@ -20,7 +20,7 @@ struct MenuBarContent: View {
             Section("Recent") {
                 ForEach(recent, id: \.id) { entry in
                     Button {
-                        copyToClipboard(entry.finalText)
+                        Paster.writeToClipboard(entry.finalText)
                     } label: {
                         Text(preview(for: entry))
                     }
@@ -53,11 +53,5 @@ struct MenuBarContent: View {
         let text = entry.finalText.replacingOccurrences(of: "\n", with: " ")
         if text.count <= maxLen { return text }
         return String(text.prefix(maxLen)) + "…"
-    }
-
-    private func copyToClipboard(_ text: String) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
     }
 }

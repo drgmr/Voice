@@ -158,8 +158,6 @@ private struct WaveformBar: View {
 // MARK: - Transcribing pill
 
 private struct TranscribingPill: View {
-    @State private var spin = false
-
     var body: some View {
         PillChrome {
             HStack(spacing: 10) {
@@ -179,6 +177,5 @@ private struct TranscribingPill: View {
                 EscHint()
             }
         }
-        .onAppear { spin = true }
     }
 }

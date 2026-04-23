@@ -98,7 +98,7 @@ actor Transcriber {
         let start = Date()
         do {
             let whisper = try await loadedPipeline(onProgress: nil)
-            log.info("Transcribing \(samples.count) samples (\(String(format: "%.2f", Double(samples.count) / 16_000.0))s)…")
+            log.info("Transcribing \(samples.count) samples (\(String(format: "%.2f", Double(samples.count) / Recorder.sampleRate))s)…")
             let results = try await whisper.transcribe(audioArray: samples)
             let text = results.map(\.text).joined(separator: " ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
