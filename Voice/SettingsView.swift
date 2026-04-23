@@ -106,6 +106,16 @@ private struct GeneralTab: View {
                     Text(err).foregroundStyle(.red)
                 }
             }
+
+            Section {
+                Button("Show Welcome Again") {
+                    controller.showWelcomeAgain()
+                }
+            } footer: {
+                Text("Re-opens the first-run welcome window, including the hotkey cheatsheet and permissions panel.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .onAppear {

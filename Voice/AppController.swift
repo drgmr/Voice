@@ -137,6 +137,17 @@ final class AppController {
         welcomeWindow = nil
     }
 
+    /// Re-open the welcome window on demand, regardless of whether onboarding
+    /// was previously completed. Used by the "Show Welcome Again" action in
+    /// Settings → General. Does not reset the onboarding flag — user can
+    /// still close the window without re-running Get Started.
+    func showWelcomeAgain() {
+        if welcomeWindow == nil {
+            welcomeWindow = WelcomeWindowController(controller: self)
+        }
+        welcomeWindow?.show()
+    }
+
     private func startModelLoad() {
         let transcriber = self.transcriber
         let log = self.log
