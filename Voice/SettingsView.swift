@@ -5,57 +5,18 @@ import CoreGraphics
 import SwiftUI
 
 struct SettingsView: View {
-    @State private var selection: SettingsTab = .general
-
     var body: some View {
-        NavigationSplitView {
-            List(SettingsTab.allCases, id: \.self, selection: $selection) { tab in
-                NavigationLink(value: tab) {
-                    Label(tab.title, systemImage: tab.symbol)
-                }
-            }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-            .listStyle(.sidebar)
-        } detail: {
-            detail(for: selection)
-                .navigationTitle(selection.title)
+        TabView {
+            GeneralTab()
+                .tabItem { Label("General", systemImage: "gearshape") }
+            VocabularyTab()
+                .tabItem { Label("Vocabulary", systemImage: "character.book.closed") }
+            HistoryTab()
+                .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
+            PermissionsTab()
+                .tabItem { Label("Permissions", systemImage: "lock.shield") }
         }
-        .frame(minWidth: 720, minHeight: 520)
-    }
-
-    @ViewBuilder
-    private func detail(for tab: SettingsTab) -> some View {
-        switch tab {
-        case .general: GeneralTab()
-        case .vocabulary: VocabularyTab()
-        case .history: HistoryTab()
-        case .permissions: PermissionsTab()
-        }
-    }
-}
-
-private enum SettingsTab: String, CaseIterable, Hashable {
-    case general
-    case vocabulary
-    case history
-    case permissions
-
-    var title: String {
-        switch self {
-        case .general: "General"
-        case .vocabulary: "Vocabulary"
-        case .history: "History"
-        case .permissions: "Permissions"
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .general: "gear"
-        case .vocabulary: "book"
-        case .history: "clock.arrow.circlepath"
-        case .permissions: "checkmark.shield"
-        }
+        .frame(minWidth: 640, idealWidth: 720, minHeight: 480, idealHeight: 560)
     }
 }
 
@@ -69,16 +30,17 @@ private struct GeneralTab: View {
         @Bindable var preferences = controller.preferences
 
         Form {
-            Section("Activation") {
+            Section {
                 LabeledContent("Hotkey") {
                     Text("Fn").font(.body.monospaced())
                 }
+            } header: {
+                Text("Activation")
+            } footer: {
                 Text("Press and hold Fn to record, or quick-tap to toggle. Esc cancels.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
-            Section("Microphone") {
+            Section {
                 Picker("Input device", selection: $preferences.inputDeviceID) {
                     Text("Automatic (built-in preferred)").tag(String?.none)
                     Divider()
@@ -86,24 +48,32 @@ private struct GeneralTab: View {
                         Text(device.localizedName).tag(String?.some(device.uniqueID))
                     }
                 }
+            } header: {
+                Text("Microphone")
+            } footer: {
                 Text("Automatic avoids Bluetooth aggregate-device issues by preferring the built-in microphone. Pick a specific device to override.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
             Section("State") {
                 LabeledContent("Current") {
-                    Text(stateLabel).monospaced()
+                    StatePill(state: controller.state)
                 }
                 if let last = controller.lastTranscription {
                     LabeledContent("Last result") {
                         Text(last)
                             .textSelection(.enabled)
-                            .lineLimit(3)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                            .multilineTextAlignment(.trailing)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 if let err = controller.errorMessage {
-                    Text(err).foregroundStyle(.red)
+                    LabeledContent("Error") {
+                        Text(err)
+                            .foregroundStyle(.red)
+                            .multilineTextAlignment(.trailing)
+                    }
                 }
             }
 
@@ -113,8 +83,6 @@ private struct GeneralTab: View {
                 }
             } footer: {
                 Text("Re-opens the first-run welcome window, including the hotkey cheatsheet and permissions panel.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -122,9 +90,31 @@ private struct GeneralTab: View {
             availableDevices = Recorder.availableInputDevices()
         }
     }
+}
 
-    private var stateLabel: String {
-        switch controller.state {
+private struct StatePill: View {
+    let state: AppController.State
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(color)
+                .frame(width: 7, height: 7)
+            Text(label)
+                .font(.body.monospaced())
+        }
+    }
+
+    private var color: Color {
+        switch state {
+        case .idle: .secondary
+        case .recording: .red
+        case .transcribing: .orange
+        }
+    }
+
+    private var label: String {
+        switch state {
         case .idle: "idle"
         case .recording: "recording"
         case .transcribing: "transcribing"
@@ -149,34 +139,48 @@ private struct HistoryTab: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
                 TextField("Search transcriptions", text: $query)
-                    .textFieldStyle(.roundedBorder)
-                Spacer()
+                    .textFieldStyle(.plain)
+                if !query.isEmpty {
+                    Button {
+                        query = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                }
+                Spacer(minLength: 8)
                 Text(countLabel)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Button(role: .destructive) {
+                    .monospacedDigit()
+                Button {
                     showingClearConfirmation = true
                 } label: {
                     Label("Clear all", systemImage: "trash")
                 }
                 .disabled(controller.recentHistory.isEmpty)
+                .help("Permanently remove every stored transcription")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
 
             Divider()
 
-            if displayedEntries.isEmpty {
-                Spacer()
-                emptyState
-                Spacer()
-            } else {
-                List(displayedEntries, id: \.id) { entry in
-                    HistoryRow(entry: entry)
-                        .padding(.vertical, 4)
+            Group {
+                if displayedEntries.isEmpty {
+                    emptyState
+                } else {
+                    List(displayedEntries, id: \.id) { entry in
+                        HistoryRow(entry: entry)
+                            .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                    }
+                    .listStyle(.inset)
+                    .alternatingRowBackgrounds()
                 }
-                .listStyle(.inset)
             }
         }
         .confirmationDialog(
@@ -202,15 +206,11 @@ private struct HistoryTab: View {
         if trimmed.isEmpty {
             ContentUnavailableView(
                 "No transcriptions yet",
-                systemImage: "clock.arrow.circlepath",
-                description: Text("Hold or tap Fn to dictate something. Your history will appear here.")
+                systemImage: "waveform",
+                description: Text("Hold or tap Fn anywhere to dictate. Your history will appear here.")
             )
         } else {
-            ContentUnavailableView(
-                "No matches",
-                systemImage: "magnifyingglass",
-                description: Text("No transcription contains \"\(trimmed)\".")
-            )
+            ContentUnavailableView.search(text: trimmed)
         }
     }
 
@@ -347,37 +347,88 @@ private struct AppIconChip: View {
 private struct VocabularyTab: View {
     @Environment(AppController.self) private var controller
     @State private var draftEntries: [VocabularyEntry] = []
-    @State private var newFrom: String = ""
-    @State private var newTo: String = ""
+    @State private var selection: Set<UUID> = []
+    @State private var showingAddSheet = false
     @State private var saveTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            HStack {
+                Text("Replace mis-transcribed phrases. The post-processor matches fuzzily.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(draftEntries.count) \(draftEntries.count == 1 ? "entry" : "entries")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+
             Divider()
 
-            if draftEntries.isEmpty {
-                Spacer()
-                ContentUnavailableView(
-                    "No vocabulary entries",
-                    systemImage: "book",
-                    description: Text("Add a rule below. The post-processor will apply it to future transcriptions.")
-                )
-                Spacer()
-            } else {
-                List {
-                    ForEach($draftEntries) { $entry in
-                        VocabularyRow(
-                            entry: $entry,
-                            onDelete: { delete(entry.id) }
-                        )
+            Group {
+                if draftEntries.isEmpty {
+                    ContentUnavailableView {
+                        Label("No vocabulary entries", systemImage: "character.book.closed")
+                    } description: {
+                        Text("Add a rule to replace mis-transcribed phrases. The post-processor will apply it to future transcriptions.")
+                    } actions: {
+                        Button("Add entry") { showingAddSheet = true }
+                            .buttonStyle(.borderedProminent)
                     }
+                } else {
+                    Table(of: Binding<VocabularyEntry>.self, selection: $selection) {
+                        TableColumn("When I say") { $entry in
+                            TextField("", text: $entry.from, prompt: Text("When I say"))
+                                .textFieldStyle(.plain)
+                        }
+                        TableColumn("Write as") { $entry in
+                            TextField("", text: $entry.to, prompt: Text("Write as"))
+                                .textFieldStyle(.plain)
+                        }
+                    } rows: {
+                        ForEach($draftEntries) { $entry in
+                            TableRow($entry)
+                        }
+                    }
+                    .alternatingRowBackgrounds()
                 }
-                .listStyle(.inset)
             }
 
             Divider()
-            addRow
+
+            HStack(spacing: 4) {
+                Button {
+                    showingAddSheet = true
+                } label: {
+                    Image(systemName: "plus")
+                        .frame(width: 22, height: 18)
+                }
+                .buttonStyle(.borderless)
+                .help("Add a new vocabulary rule")
+
+                Button {
+                    deleteSelected()
+                } label: {
+                    Image(systemName: "minus")
+                        .frame(width: 22, height: 18)
+                }
+                .buttonStyle(.borderless)
+                .disabled(selection.isEmpty)
+                .help("Delete selected entries")
+
+                Spacer()
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+        }
+        .sheet(isPresented: $showingAddSheet) {
+            AddVocabularySheet { from, to in
+                let entry = VocabularyEntry(from: from, to: to)
+                draftEntries.append(entry)
+            }
         }
         .onAppear(perform: sync)
         .onChange(of: controller.vocabulary) { _, _ in sync() }
@@ -388,59 +439,15 @@ private struct VocabularyTab: View {
         }
     }
 
-    private var header: some View {
-        HStack {
-            Text("Replace mis-transcribed phrases. The post-processor matches fuzzily.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Text("\(draftEntries.count) \(draftEntries.count == 1 ? "entry" : "entries")")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-    }
-
-    private var addRow: some View {
-        HStack(spacing: 8) {
-            TextField("When I say", text: $newFrom)
-                .textFieldStyle(.roundedBorder)
-            Image(systemName: "arrow.right").foregroundStyle(.tertiary)
-            TextField("Write as", text: $newTo)
-                .textFieldStyle(.roundedBorder)
-            Button(action: add) {
-                Label("Add", systemImage: "plus")
-            }
-            .disabled(!canAdd)
-        }
-        .padding(16)
-    }
-
-    private var canAdd: Bool {
-        let from = newFrom.trimmingCharacters(in: .whitespaces)
-        let to = newTo.trimmingCharacters(in: .whitespaces)
-        return !from.isEmpty && !to.isEmpty
-    }
-
     private func sync() {
         if draftEntries != controller.vocabulary {
             draftEntries = controller.vocabulary
         }
     }
 
-    private func add() {
-        let entry = VocabularyEntry(
-            from: newFrom.trimmingCharacters(in: .whitespaces),
-            to: newTo.trimmingCharacters(in: .whitespaces)
-        )
-        draftEntries.append(entry)
-        newFrom = ""
-        newTo = ""
-    }
-
-    private func delete(_ id: UUID) {
-        draftEntries.removeAll { $0.id == id }
+    private func deleteSelected() {
+        draftEntries.removeAll { selection.contains($0.id) }
+        selection.removeAll()
     }
 
     private func scheduleSave() {
@@ -454,23 +461,49 @@ private struct VocabularyTab: View {
     }
 }
 
-private struct VocabularyRow: View {
-    @Binding var entry: VocabularyEntry
-    var onDelete: () -> Void
+private struct AddVocabularySheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var from: String = ""
+    @State private var to: String = ""
+    let onAdd: (String, String) -> Void
+
+    private var canAdd: Bool {
+        !from.trimmingCharacters(in: .whitespaces).isEmpty &&
+        !to.trimmingCharacters(in: .whitespaces).isEmpty
+    }
 
     var body: some View {
-        HStack(spacing: 8) {
-            TextField("When I say", text: $entry.from)
-                .textFieldStyle(.roundedBorder)
-            Image(systemName: "arrow.right").foregroundStyle(.tertiary)
-            TextField("Write as", text: $entry.to)
-                .textFieldStyle(.roundedBorder)
-            Button(role: .destructive, action: onDelete) {
-                Image(systemName: "trash")
+        VStack(alignment: .leading, spacing: 0) {
+            Text("New vocabulary rule")
+                .font(.headline)
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+                .padding(.bottom, 12)
+
+            Form {
+                TextField("When I say", text: $from)
+                TextField("Write as", text: $to)
             }
-            .buttonStyle(.borderless)
+            .formStyle(.grouped)
+            .scrollDisabled(true)
+
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Add") {
+                    onAdd(
+                        from.trimmingCharacters(in: .whitespaces),
+                        to.trimmingCharacters(in: .whitespaces)
+                    )
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!canAdd)
+            }
+            .padding(20)
         }
-        .padding(.vertical, 2)
+        .frame(width: 420)
     }
 }
 
@@ -512,8 +545,6 @@ private struct PermissionsTab: View {
                 )
             } footer: {
                 Text("After granting a permission, re-launch Voice so the running binary picks up the new grant.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -577,14 +608,14 @@ private struct PermissionRow: View {
     let openSettings: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             Image(systemName: status.symbol)
                 .foregroundStyle(status.color)
-                .font(.title3)
-                .frame(width: 24)
+                .font(.title2)
+                .frame(width: 26)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.headline)
+                Text(title).font(.body).fontWeight(.medium)
                 Text(description)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -595,10 +626,8 @@ private struct PermissionRow: View {
 
             Spacer()
 
-            Button("Open Settings") {
-                openSettings()
-            }
-            .controlSize(.small)
+            Button("Open Settings", action: openSettings)
+                .controlSize(.small)
         }
         .padding(.vertical, 4)
     }

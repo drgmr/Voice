@@ -116,9 +116,12 @@ final class AppController {
             await postProcessor.prewarm()
         }
 
-        // Show the welcome window on first launch. It observes modelLoadState
-        // and transitions from "setting up" to "ready" as the prewarm completes.
-        if !preferences.hasCompletedOnboarding {
+        // Show the welcome window when the model isn't on disk yet — the
+        // welcome flow is what drives the download. On subsequent launches
+        // with the model cached we skip straight to the menu-bar app. If
+        // the user ever deletes the model, the welcome will come back next
+        // launch automatically.
+        if !Transcriber.isModelCached() {
             welcomeWindow = WelcomeWindowController(controller: self)
             welcomeWindow?.show()
         }
@@ -132,7 +135,6 @@ final class AppController {
     }
 
     func finishOnboarding() {
-        preferences.hasCompletedOnboarding = true
         welcomeWindow?.hide()
         welcomeWindow = nil
     }

@@ -34,6 +34,46 @@ actor Transcriber {
     /// Download fraction (0.0 – 1.0) reported from `WhisperKit.download`.
     typealias ProgressHandler = @Sendable (Double) -> Void
 
+    // MARK: - Model cache location
+
+    /// Root directory the app owns for WhisperKit model downloads. Pinned
+    /// under Application Support so the cache is not shared with other
+    /// Hub users and so presence is something the app can reason about
+    /// (e.g., onboarding is driven by model presence, not a persisted
+    /// flag).
+    nonisolated static let modelsBaseURL: URL = {
+        let fm = FileManager.default
+        let support = (try? fm.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )) ?? fm.temporaryDirectory
+        let dir = support.appending(component: "Voice").appending(component: "models")
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
+    /// Returns `true` if the recommended WhisperKit model is already
+    /// downloaded and looks complete (has the three core Core ML bundles).
+    /// Used by the welcome flow: if this returns `false` at launch, we
+    /// show the welcome window so the user sees the download progress.
+    nonisolated static func isModelCached() -> Bool {
+        let modelName = WhisperKit.recommendedModels().default
+        let modelDir = modelsBaseURL
+            .appending(component: "models")
+            .appending(component: "argmaxinc")
+            .appending(component: "whisperkit-coreml")
+            .appending(component: modelName)
+        let fm = FileManager.default
+        let required = ["MelSpectrogram.mlmodelc", "AudioEncoder.mlmodelc", "TextDecoder.mlmodelc"]
+        return required.allSatisfy { component in
+            var isDir: ObjCBool = false
+            let path = modelDir.appending(component: component).path
+            return fm.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
+        }
+    }
+
     /// Load (and download if needed) the recommended WhisperKit model so the
     /// first user transcription doesn't pay the pipeline-load latency. Safe
     /// to call multiple times — subsequent calls are a no-op. Throws on
@@ -93,6 +133,7 @@ actor Transcriber {
             // Phase 1: download model files with progress.
             let modelURL = try await WhisperKit.download(
                 variant: modelName,
+                downloadBase: Self.modelsBaseURL,
                 progressCallback: { progress in
                     onProgress?(progress.fractionCompleted)
                 }
