@@ -9,46 +9,49 @@ struct WelcomeView: View {
     @Bindable var controller: AppController
 
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color(red: 0.07, green: 0.09, blue: 0.14), Color(red: 0.04, green: 0.05, blue: 0.08)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+        VStack(spacing: 26) {
+            AppLogo()
 
-            VStack(spacing: 28) {
-                AppLogo()
-
-                Group {
-                    switch controller.modelLoadState {
-                    case .preparing:
-                        LoadingStage(message: "Preparing…", progress: nil)
-                    case .downloading(let fraction):
-                        LoadingStage(
-                            message: downloadingMessage(for: fraction),
-                            progress: fraction
-                        )
-                    case .loading:
-                        LoadingStage(message: "Optimizing the model for your Mac…", progress: nil)
-                    case .ready:
-                        ReadyStage(onStart: { controller.finishOnboarding() })
-                    case .failed(let message):
-                        FailedStage(message: message, onRetry: { controller.retryModelLoad() })
-                    }
+            Group {
+                switch controller.modelLoadState {
+                case .preparing:
+                    LoadingStage(
+                        title: "Welcome to Voice",
+                        subtitle: "Press the Fn key anywhere to dictate.",
+                        progress: nil,
+                        statusMessage: "Preparing…"
+                    )
+                case .downloading(let fraction):
+                    LoadingStage(
+                        title: "Welcome to Voice",
+                        subtitle: "Press the Fn key anywhere to dictate.",
+                        progress: fraction,
+                        statusMessage: downloadingMessage(for: fraction)
+                    )
+                case .loading:
+                    LoadingStage(
+                        title: "Welcome to Voice",
+                        subtitle: "Press the Fn key anywhere to dictate.",
+                        progress: nil,
+                        statusMessage: "Optimizing the model for your Mac…"
+                    )
+                case .ready:
+                    ReadyStage(onStart: { controller.finishOnboarding() })
+                case .failed(let message):
+                    FailedStage(message: message, onRetry: { controller.retryModelLoad() })
                 }
-                .frame(maxWidth: .infinity)
-                .animation(.smooth(duration: 0.28), value: stateKey)
             }
-            .padding(40)
+            .frame(maxWidth: .infinity)
+            .animation(.smooth(duration: 0.28), value: stateKey)
+
+            ModelFooter()
         }
+        .padding(.horizontal, 48)
+        .padding(.vertical, 40)
         .frame(minWidth: 520, minHeight: 520)
-        .foregroundStyle(.white)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
-    /// Key used purely to trigger the crossfade; reduces the
-    /// `.downloading(fraction:)` case to a single identity so the animation
-    /// doesn't re-fire on every progress tick.
     private var stateKey: String {
         switch controller.modelLoadState {
         case .preparing: "preparing"
@@ -62,7 +65,7 @@ struct WelcomeView: View {
     private func downloadingMessage(for fraction: Double) -> String {
         let approxTotalMB = 617.0
         let doneMB = approxTotalMB * fraction
-        return String(format: "Downloading speech model — %.0f MB of %.0f MB", doneMB, approxTotalMB)
+        return String(format: "%.0f MB of %.0f MB", doneMB, approxTotalMB)
     }
 }
 
@@ -80,7 +83,7 @@ private struct AppLogo: View {
                     )
                 )
                 .frame(width: 88, height: 88)
-                .shadow(color: .black.opacity(0.3), radius: 16, y: 8)
+                .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
 
             Image(systemName: "mic.fill")
                 .font(.system(size: 42, weight: .semibold))
@@ -92,43 +95,47 @@ private struct AppLogo: View {
 // MARK: - Loading stage
 
 private struct LoadingStage: View {
-    let message: String
+    let title: String
+    let subtitle: String
     /// When non-nil, renders a determinate bar. Nil means indeterminate spinner.
     let progress: Double?
+    let statusMessage: String
 
     var body: some View {
-        VStack(spacing: 16) {
-            Text("Welcome to Voice")
-                .font(.system(size: 28, weight: .bold))
+        VStack(spacing: 18) {
+            Text(title)
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(.primary)
 
-            Text("Setting up the on-device speech model.")
-                .font(.body)
-                .foregroundStyle(.white.opacity(0.8))
+            Text(subtitle)
+                .font(.system(size: 14))
+                .foregroundStyle(.secondary)
 
-            if let progress {
-                ProgressView(value: progress)
-                    .progressViewStyle(.linear)
-                    .tint(.white)
-                    .frame(maxWidth: 360)
-                    .padding(.top, 6)
-            } else {
-                ProgressView()
-                    .progressViewStyle(.circular)
-                    .controlSize(.large)
-                    .tint(.white)
-                    .padding(.vertical, 4)
+            VStack(spacing: 10) {
+                HStack {
+                    Text("Downloading speech model…")
+                        .font(.system(size: 13, weight: .semibold))
+                    Spacer()
+                    Text(statusMessage)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+
+                if let progress {
+                    ProgressView(value: progress)
+                        .progressViewStyle(.linear)
+                } else {
+                    ProgressView()
+                        .progressViewStyle(.linear)
+                }
+
+                Text("One-time download. Runs locally from here on — nothing leaves your Mac.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-
-            Text(message)
-                .font(.callout)
-                .foregroundStyle(.white.opacity(0.75))
-                .multilineTextAlignment(.center)
-
-            Text("First time only. Audio stays on your Mac — nothing leaves your device.")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.55))
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 380)
+            .frame(maxWidth: 420)
         }
     }
 }
@@ -139,13 +146,14 @@ private struct ReadyStage: View {
     let onStart: () -> Void
 
     var body: some View {
-        VStack(spacing: 22) {
+        VStack(spacing: 20) {
             Text("You're all set")
-                .font(.system(size: 28, weight: .bold))
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(.primary)
 
-            Text("Hold or tap Fn anywhere to dictate.")
-                .font(.body)
-                .foregroundStyle(.white.opacity(0.85))
+            Text("Hold or tap Fn anywhere to start dictating.")
+                .font(.system(size: 14))
+                .foregroundStyle(.secondary)
 
             shortcutCard
             PermissionsCard()
@@ -170,8 +178,8 @@ private struct ReadyStage: View {
         }
         .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.08))
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
         )
         .frame(maxWidth: 440)
     }
@@ -182,25 +190,25 @@ private struct ShortcutRow: View {
     let description: String
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             Text(key)
-                .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                .foregroundStyle(.white)
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.primary)
                 .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .padding(.vertical, 5)
                 .background(
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color.white.opacity(0.15))
+                        .fill(Color(nsColor: .controlBackgroundColor))
                         .overlay(
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .stroke(Color.white.opacity(0.25), lineWidth: 1)
+                                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
                         )
                 )
-                .frame(minWidth: 52)
+                .frame(minWidth: 44)
 
             Text(description)
-                .font(.callout)
-                .foregroundStyle(.white.opacity(0.85))
+                .font(.system(size: 13))
+                .foregroundStyle(.primary.opacity(0.8))
 
             Spacer(minLength: 0)
         }
@@ -219,8 +227,9 @@ private struct PermissionsCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Permissions Voice needs")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.6))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
 
             PermissionItemRow(
                 title: "Microphone",
@@ -243,8 +252,8 @@ private struct PermissionsCard: View {
         }
         .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.08))
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
         )
         .frame(maxWidth: 440)
         .onAppear(perform: refresh)
@@ -265,15 +274,11 @@ private struct PermissionsCard: View {
     }
 
     private func requestInputMonitoring() {
-        // Triggers the macOS prompt. Grant takes effect on next launch.
         _ = CGRequestListenEventAccess()
         refresh()
     }
 
     private func requestAccessibility() {
-        // The AX framework exports kAXTrustedCheckOptionPrompt as a CFString
-        // global var, which Swift 6 flags as not concurrency-safe. Its value
-        // is the string literal below and is documented to be stable.
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
         refresh()
@@ -289,17 +294,16 @@ private struct PermissionItemRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: isGranted ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(isGranted ? Color.green : Color.white.opacity(0.35))
+                .foregroundStyle(isGranted ? Color.green : Color.secondary.opacity(0.5))
                 .font(.system(size: 18))
                 .frame(width: 22)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(.white)
+                    .font(.system(size: 13, weight: .medium))
                 Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.6))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             }
 
             Spacer()
@@ -307,13 +311,26 @@ private struct PermissionItemRow: View {
             if !isGranted {
                 Button("Grant", action: onRequest)
                     .controlSize(.small)
-                    .buttonStyle(.bordered)
-                    .tint(.white)
             } else {
                 Text("Granted")
-                    .font(.caption)
+                    .font(.system(size: 11))
                     .foregroundStyle(.green)
             }
+        }
+    }
+}
+
+// MARK: - Footer
+
+private struct ModelFooter: View {
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(.green)
+            Text("whisper-large-v3-turbo · Apple Silicon · ~617 MB")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
         }
     }
 }
@@ -331,11 +348,11 @@ private struct FailedStage: View {
                 .foregroundStyle(.yellow)
 
             Text("Model load failed")
-                .font(.system(size: 22, weight: .bold))
+                .font(.system(size: 20, weight: .bold))
 
             Text(message)
                 .font(.callout)
-                .foregroundStyle(.white.opacity(0.8))
+                .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
 
@@ -345,7 +362,6 @@ private struct FailedStage: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
-            .tint(.white)
         }
     }
 }

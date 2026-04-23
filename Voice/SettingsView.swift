@@ -5,21 +5,57 @@ import CoreGraphics
 import SwiftUI
 
 struct SettingsView: View {
+    @State private var selection: SettingsTab = .general
+
     var body: some View {
-        TabView {
-            GeneralTab()
-                .tabItem { Label("General", systemImage: "gear") }
-
-            VocabularyTab()
-                .tabItem { Label("Vocabulary", systemImage: "book") }
-
-            HistoryTab()
-                .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
-
-            PermissionsTab()
-                .tabItem { Label("Permissions", systemImage: "checkmark.shield") }
+        NavigationSplitView {
+            List(SettingsTab.allCases, id: \.self, selection: $selection) { tab in
+                NavigationLink(value: tab) {
+                    Label(tab.title, systemImage: tab.symbol)
+                }
+            }
+            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+            .listStyle(.sidebar)
+        } detail: {
+            detail(for: selection)
+                .navigationTitle(selection.title)
         }
-        .frame(minWidth: 620, minHeight: 460)
+        .frame(minWidth: 720, minHeight: 520)
+    }
+
+    @ViewBuilder
+    private func detail(for tab: SettingsTab) -> some View {
+        switch tab {
+        case .general: GeneralTab()
+        case .vocabulary: VocabularyTab()
+        case .history: HistoryTab()
+        case .permissions: PermissionsTab()
+        }
+    }
+}
+
+private enum SettingsTab: String, CaseIterable, Hashable {
+    case general
+    case vocabulary
+    case history
+    case permissions
+
+    var title: String {
+        switch self {
+        case .general: "General"
+        case .vocabulary: "Vocabulary"
+        case .history: "History"
+        case .permissions: "Permissions"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .general: "gear"
+        case .vocabulary: "book"
+        case .history: "clock.arrow.circlepath"
+        case .permissions: "checkmark.shield"
+        }
     }
 }
 
@@ -206,33 +242,37 @@ private struct HistoryRow: View {
     }()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(entry.finalText)
-                .textSelection(.enabled)
-                .lineLimit(4)
-            HStack(spacing: 6) {
-                Text(Self.timeFormatter.string(from: entry.createdAt))
-                Text("·")
-                Text(durationLabel)
-                if let lang = entry.language, !lang.isEmpty {
+        HStack(alignment: .top, spacing: 10) {
+            AppIconChip(bundleID: entry.appBundleId)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(entry.finalText)
+                    .textSelection(.enabled)
+                    .lineLimit(4)
+                HStack(spacing: 6) {
+                    Text(Self.timeFormatter.string(from: entry.createdAt))
                     Text("·")
-                    Text(lang.uppercased()).monospaced()
+                    Text(durationLabel)
+                    if let lang = entry.language, !lang.isEmpty {
+                        Text("·")
+                        Text(lang.uppercased()).monospaced()
+                    }
+                    if let app = appName(for: entry.appBundleId) {
+                        Text("·")
+                        Text(app).lineLimit(1).truncationMode(.middle)
+                    }
+                    Spacer()
+                    Button {
+                        copyToClipboard(entry.finalText)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Copy to clipboard")
                 }
-                if let app = entry.appBundleId, !app.isEmpty {
-                    Text("·")
-                    Text(app).lineLimit(1).truncationMode(.middle)
-                }
-                Spacer()
-                Button {
-                    copyToClipboard(entry.finalText)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                }
-                .buttonStyle(.borderless)
-                .help("Copy to clipboard")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
         }
     }
 
@@ -245,6 +285,50 @@ private struct HistoryRow: View {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+    }
+
+    private func appName(for bundleID: String?) -> String? {
+        guard let bundleID,
+              let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID),
+              let bundle = Bundle(url: url) else {
+            return bundleID
+        }
+        return (bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
+            ?? (bundle.object(forInfoDictionaryKey: "CFBundleName") as? String)
+            ?? bundleID
+    }
+}
+
+private struct AppIconChip: View {
+    let bundleID: String?
+
+    var body: some View {
+        ZStack {
+            if let icon = appIcon(for: bundleID) {
+                Image(nsImage: icon)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 24, height: 24)
+            } else {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.secondary.opacity(0.2))
+                    .frame(width: 24, height: 24)
+                    .overlay(
+                        Image(systemName: "app")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    )
+            }
+        }
+        .padding(.top, 1)
+    }
+
+    private func appIcon(for bundleID: String?) -> NSImage? {
+        guard let bundleID,
+              let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
+            return nil
+        }
+        return NSWorkspace.shared.icon(forFile: url.path)
     }
 }
 
